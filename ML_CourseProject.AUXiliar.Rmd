@@ -1,0 +1,486 @@
+---
+title: "Prediction Assignment Writeup"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+### Johns Hopkins University
+#### Practical Machine Learning Course Project
+#### Gustavo P. Gialluisi
+##### 19/07/2015
+
+
+###Overview
+
+This report is a basic Machine Learning excercise that intend to analyse data in the Weight Lifting Exercise Dataset to predict values of column _classe_ of the dataset.  
+
+A good model was fit after removing columns that had high percentage of NA values. 
+
+A accuracy of 0.99 was obtained using RandomForest model.
+
+
+### Exploratory Data Analysis
+
+
+Figure 1 'str(mtcars)' and Figure 2 'head(mtcars)' shows the types of variables and the first 5 rows of the dataset.
+
+Figure 3 'mtcars PAIRS' shows a lot of correlation among almost all the variables.
+
+### Model Selection
+
+As starting point, we shall consider the model with only 'am' as the regressor.
+
+$Y = \beta_0 + \beta_1*Xam + r$
+
+Figure 4 'Summary of (mpg ~ am) linear regression' shows significant p-values, and the "***" at the far end of the row indicates that the influence of transmission on mpg is significant at the alpha level of 0.001. The $R^2$ value of .36 indicates that only 36% of variation on mpg is explained by the variation of transmission. So let's look for other independent variables to improve our model.  
+
+To identify which are the independent variables, let's start be the one with the higher correlation value (absolute value) with our outcome mpg. Figure 5 'mpg correlation table' shows that 'wt' is the variable with higher corraltion with mpg: 0.87. So 'wt' is our first guess.  
+
+Next we should remove from the list all variables that are highly correlated to 'wt'. Figure 6 'wt correlation table' shows that 'wt' has correlation with almost all other  variables. Except 'qsec', that has a very low correlation: 0.17.  
+
+Our next elected model, so, is:  
+
+$Y = \beta_0 + \beta_1*Xam + \beta_2*Xwt + \beta_3*Xqsec + r$
+
+Figure 7 'Summary of (mpg ~ am + wt + qsec) linear regression' shows the excelent $R^2$ value of .85 indicating that 85% of variation on mpg is explained by this model.
+
+
+Next, let's try to include variable 'gear', that according to Figure 6 'wt correlation table' and Figure 8 'qsec correlation table' has less correlation to qsec (.21) and wt (.58).
+
+Our next tested model, so, is:  
+
+$Y = \beta_0 + \beta_1*Xam + \beta_2*Xwt + \beta_3*Xqsec + \beta_4*Xgear + r$
+
+Figure 9 'Summary of (mpg ~ am + wt + qsec + gear) linear regression' shows again the excelent $R^2$ value of .85, but p-value for gear variable is high, so we fail to reject null hypotesis of gear having no influence in our model.  
+
+Figure 10 'ANOVA of including gear variable' also shows that 'gear' should not be included.  
+
+So the inclusion of gear variable is rejected.  
+
+Since my best guess for next independent variable failed, I won't test the others, and my chosen model will be:  
+
+$Y = \beta_0 + \beta_1*Xam + \beta_2*Xwt + \beta_3*Xqsec + r$  
+
+Next we'll analyse if it's a good or not so good model.
+
+
+
+
+### Chosen Model Analysis
+
+The analysis of thte residuals of a model is a way of testing the model.  
+
+The mean of the residuals must be zero, and if it is not, the assumption of normality of the residuals will be breoken, invalidating the model.
+
+In our case the mean of the residuals is $8.5e-17$ (~zero), so the model passed on this first test.
+
+Also, covariance between the residuals and the predictors must be close to zero. Figure 12 shows that they are.
+
+Figure 13 'Residuals Diagnostics Plot' shows us that Residuals x Fitted values doesn't follow any particular trend, but it shows a curve on th smooth what is not expected. And the Normal Q-Q plot shows that residuals are quite apart from normality.  
+
+This may happen beceuse of the high correlation that the predictor 'am' has with the other predictors 'wt' and 'qsec'.
+
+
+### Conclusion
+
+Figure 14 'Confidence Intervals' helps us to respond the initial questions:
+
+*    "Is an automatic or manual transmission better for MPG ?"
+
+According to our model, manual transmition is better for MPG, with 95% confidence.
+
+*    "Quantify the MPG difference between automatic and manual transmissions"
+
+The analysis of it's $\beta$ s coefficients indicates the 95% confidence interval of $0.046$ to $5.826$ Miles/(US)Gallon of $INCREASE$ in mpg when changing from $Automatic$ to $Manual$ transmission, and holding the remaining variables constant.
+
+
+
+### Appendix
+
+Here follows all R code and figures used in the analysis above.
+
+```{r warning=FALSE, message=FALSE, fig.align='center', fig.width=8, fig.height=5}
+
+### Load data and Exploratory Data Analysis
+
+
+require(caret)
+require(ggplot2)
+
+
+# training <- read.csv("machinelearning/pml-training.csv")
+
+trainsubset <- read.csv("machinelearning/pml-training.csv",na.strings = c("NA", "#DIV/0!"))
+tosubmit <- read.csv("machinelearning/pml-testing.csv",na.strings = c("NA", "#DIV/0!"))
+
+set.seed(123456)
+
+inTrain <- createDataPartition(y=trainsubset$classe,
+                               p=0.7, list=FALSE)
+training <- trainsubset[inTrain,]
+testing <- trainsubset[-inTrain,]
+
+
+str(testing)
+
+
+
+
+
+# X column is only index, not a predictor, must remove it
+training <- subset(training, select = -c(X))
+
+
+# 
+training <- subset(training, select = -c(cvtd_timestamp))
+
+
+
+# near zero variance analysis
+nzv <- nearZeroVar(training, saveMetrics = TRUE)
+
+# columns to remove:
+row.names(nzv[nzv$nzv,])
+
+
+names(nzv)
+
+
+training <- subset(training, select = -c(new_window, kurtosis_yaw_belt, skewness_yaw_belt, amplitude_yaw_belt, avg_roll_arm, stddev_roll_arm, var_roll_arm, avg_pitch_arm, stddev_pitch_arm, var_pitch_arm, avg_yaw_arm, stddev_yaw_arm, var_yaw_arm, max_roll_arm, amplitude_roll_arm, amplitude_pitch_arm, kurtosis_yaw_dumbbell, skewness_yaw_dumbbell, amplitude_yaw_dumbbell, kurtosis_yaw_forearm, skewness_yaw_forearm, max_roll_forearm, min_roll_forearm, amplitude_roll_forearm, amplitude_yaw_forearm, avg_roll_forearm, stddev_roll_forearm, var_roll_forearm, avg_pitch_forearm, stddev_pitch_forearm, var_pitch_forearm, avg_yaw_forearm, stddev_yaw_forearm, var_yaw_forearm))
+
+
+
+na.analysis <- as.data.frame(colMeans(is.na(training)))
+names(na.analysis) <- c("na.pc")
+na.analysis$variable <- rownames(na.analysis)
+na.analysis[order(na.analysis$na.pc, decreasing = TRUE),]
+write.csv(na.analysis[na.analysis$na.pc > 0,]$variable, file="na.remove2.csv", row.names=FALSE)
+
+
+rownames(na.analysis[na.analysis$na.pc > 0,])
+
+
+
+dim(training)
+dim(testing)
+
+
+
+
+
+
+
+str(trainsubset)
+str(training)
+dim(testing)
+unique(training$skewness_yaw_dumbbell)
+
+str(training)
+names(training)
+training$classe
+testing$cvtd_timestamp
+
+head(testing)
+
+
+
+
+unique(training$skewness_yaw_belt)
+unique(training$kurtosis_yaw_belt)
+unique(training$skewness_yaw_dumbbell)
+unique(training$kurtosis_yaw_dumbbell)
+unique(training$kurtosis_yaw_forearm)
+unique(training$skewness_yaw_forearm)
+
+
+unique(training$amplitude_yaw_belt)
+unique(training$amplitude_yaw_dumbbell)
+unique(training$amplitude_yaw_forearm)
+
+
+names(training)
+
+require(plyr)
+
+z <- lapply(training, function(x) mean(is.na(x)))
+z <- sapply(training, function(x) mean(is.na(x)), simplify = "array")
+z <- maply(training, function(x) mean(is.na(x)))
+
+
+class(z[2][1])
+z <- ddply(training, function(x) mean(is.na(x)))
+
+
+variables <- data.frame(variable = names(training), na.pc=0)
+variables$variable <- as.character( variables$variable)
+variables$na.pc <- 0
+
+class(variables[,2])
+
+
+variables$na.mean <- mean(is.na(training[c(variables$variable),]))
+
+class(variables$variable)
+
+for(i in 1:length(variables$variable))
+{
+    variables[i,]$na.mean <- mean(is.na(training[,variables[i,]$variable]))
+}
+
+
+
+rownames(na.analysis[na.analysis$na.pc > 0,])
+
+na.analysis[na.analysis$na.pc > 0,]$variable
+
+write.csv(na.analysis[na.analysis$na.pc > 0,]$variable, file="na.remove.csv", row.names=FALSE)
+
+
+
+head(na.analysis)
+
+na.analysis[order(na.analysis$colMeans(is.na(training)))]
+
+
+mean(is.na(training[,"kurtosis_roll_forearm"]))
+
+
+$variable
+
+head(variables)
+tail(variables)
+unique(variables$na.pc)
+
+
+namean <- mean(is.na(training))
+
+impact <- ddply(readSet, 
+            .(evtype), 
+            summarize, 
+            total.fatalities = sum(fatalities, na.rm = TRUE),
+            total.injuries = sum(injuries, na.rm = TRUE),
+            total.propdamage = sum(propdmg, na.rm = TRUE),
+            total.cropdamage = sum(cropdmg, na.rm = TRUE))
+
+
+
+mean(is.na(training$kurtosis_roll_forearm))
+sum(!is.na(training$kurtosis_roll_forearm))
+
+
+transformit <- function(dataset){
+
+    # create timestamp column
+    ## dataset$timestamp <- parse_date_time(dataset$cvtd_timestamp, c("%d%m%y %H%M"))
+    
+    # remove all other timestamp columns
+    # dataset <- subset(dataset, select = -c(cvtd_timestamp, raw_timestamp_part_1, raw_timestamp_part_2))
+
+    
+    dataset <- subset(dataset, select = -c(cvtd_timestamp))
+
+    
+    
+    # X column is only index, not a predictor, must remove it
+    dataset <- subset(dataset, select = -c(X))
+    
+    
+    
+    
+    # remove columns with only NA
+    #dataset <- subset(dataset, select = -c(skewness_yaw_belt, kurtosis_yaw_belt, 
+    #                                       skewness_yaw_dumbbell, kurtosis_yaw_dumbbell, 
+    #                                       kurtosis_yaw_forearm, skewness_yaw_forearm))
+
+    
+    #dataset <- subset(dataset, select = -c(amplitude_yaw_belt, amplitude_yaw_dumbbell, amplitude_yaw_forearm))
+
+    # remove all remaining variables indicated by nearZeroVariance function
+    dataset <- subset(dataset, select = -c(new_window, kurtosis_yaw_belt, skewness_yaw_belt, amplitude_yaw_belt, avg_roll_arm, stddev_roll_arm, var_roll_arm, avg_pitch_arm, stddev_pitch_arm, var_pitch_arm, avg_yaw_arm, stddev_yaw_arm, var_yaw_arm, max_roll_arm, amplitude_roll_arm, amplitude_pitch_arm, kurtosis_yaw_dumbbell, skewness_yaw_dumbbell, amplitude_yaw_dumbbell, kurtosis_yaw_forearm, skewness_yaw_forearm, max_roll_forearm, min_roll_forearm, amplitude_roll_forearm, amplitude_yaw_forearm, avg_roll_forearm, stddev_roll_forearm, var_roll_forearm, avg_pitch_forearm, stddev_pitch_forearm, var_pitch_forearm, avg_yaw_forearm, stddev_yaw_forearm, var_yaw_forearm))
+    
+    
+
+    dataset <- subset(dataset, select = -c(kurtosis_roll_belt, kurtosis_picth_belt, skewness_roll_belt, skewness_roll_belt.1, max_roll_belt, max_picth_belt, max_yaw_belt, min_roll_belt, min_pitch_belt, min_yaw_belt, amplitude_roll_belt, amplitude_pitch_belt, var_total_accel_belt, avg_roll_belt, stddev_roll_belt, var_roll_belt, avg_pitch_belt, stddev_pitch_belt, var_pitch_belt, avg_yaw_belt, stddev_yaw_belt, var_yaw_belt, var_accel_arm, kurtosis_roll_arm, kurtosis_picth_arm, kurtosis_yaw_arm, skewness_roll_arm, skewness_pitch_arm, skewness_yaw_arm, max_picth_arm, max_yaw_arm, min_roll_arm, min_pitch_arm, min_yaw_arm, amplitude_yaw_arm, kurtosis_roll_dumbbell, kurtosis_picth_dumbbell, skewness_roll_dumbbell, skewness_pitch_dumbbell, max_roll_dumbbell, max_picth_dumbbell, max_yaw_dumbbell, min_roll_dumbbell, min_pitch_dumbbell, min_yaw_dumbbell, amplitude_roll_dumbbell, amplitude_pitch_dumbbell, var_accel_dumbbell, avg_roll_dumbbell, stddev_roll_dumbbell, var_roll_dumbbell, avg_pitch_dumbbell, stddev_pitch_dumbbell, var_pitch_dumbbell, avg_yaw_dumbbell, stddev_yaw_dumbbell, var_yaw_dumbbell, kurtosis_roll_forearm, kurtosis_picth_forearm, skewness_roll_forearm, skewness_pitch_forearm, max_picth_forearm, max_yaw_forearm, min_pitch_forearm, min_yaw_forearm, amplitude_pitch_forearm, var_accel_forearm))
+
+    
+    
+    # function returns the dataset
+    dataset
+}
+
+
+training <- transformit(training)
+testing <- transformit(testing)
+tosubmit <- transformit(tosubmit)
+
+
+modelRF <- train(classe ~ ., data=training,
+                  preProcess=c("center","scale"), #"knnImpute"
+                  method="rf")
+modelRF
+
+saveRDS(modelRF, file="modelRF.rds")
+
+# modelRF <- readRDS(file="modelRF.rds")
+
+
+
+
+confusionMatrix(testing$classe, predict(modelRF, testing))
+str(testing)
+predict(modelRF, tosubmit)
+
+model_gbm <- train(classe ~ ., data=training,
+                  preProcess=c("center", "scale"), 
+                  method="gbm", verbose=FALSE)
+model_gbm
+
+saveRDS(model_gbm, file="model_gbm.rds")
+
+model_gbm$results
+confusionMatrix(testing$classe, predict(model_gbm, testing))
+
+predict(modelRF, tosubmit)
+predict(model_gbm, tosubmit)
+
+answers <- predict(modelRF, tosubmit)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+
+
+
+
+str(training)
+# there are 6 columns 
+types <- sapply(training, class)
+islogical <- (types=="logical")
+
+dataset <- subset(training, select = islogical)
+str(dataset)
+
+dataset <- subset(training, classe, X)
+
+dataset <- subset(training,select=c(classe, X))
+typeof(training$user_name)
+head(dataset)
+
+
+X
+kurtosis_yaw_dumbbell
+skewness_yaw_dumbbell
+skewness_yaw_belt
+kurtosis_yaw_belt
+
+install.packages("lubridate")
+library(lubridate)
+
+training$timestamp <- parse_date_time(training$cvtd_timestamp, c("%d%m%y %H%M"))
+
+head(subset(training, select=c(timestamp, cvtd_timestamp)))
+parse_date_time(sprintf("%04d", a$cvtd_timestamp), orders="hm")
+    
+    testing$X
+
+#Figure 1: 'str(mtcars)'
+str(mtcars)
+
+#Figure 2: 'head(mtcars)'
+head(mtcars)
+
+#Figure 3: 'mtcars PAIRS'
+pairs(mtcars, panel = panel.smooth, main = "mtcars PAIRS", col = 3 + mtcars$am)
+
+
+### Model Selection
+
+#Figure 4: 'Summary of (mpg ~ am) linear regression'
+summary(lm(mpg ~ am, mtcars))
+
+
+#Figure 5: 'mpg correlation table'
+mpgcor <- c(abs(cor(mtcars$mpg, mtcars$cyl)), "cyl")
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$disp)), "disp"))
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$hp)), "hp"))
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$drat)), "drat"))
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$wt)), "wt"))
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$qsec)), "qsec"))
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$vs)), "vs"))
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$gear)), "gear"))
+mpgcor <- rbind(mpgcor, c(abs(cor(mtcars$mpg, mtcars$carb)), "carb"))
+mpgcor[order(mpgcor[,1], decreasing = TRUE),]
+
+
+#Figure 6: 'wt correlation table'
+wtcor <- c(abs(cor(mtcars$wt, mtcars$cyl)), "cyl")
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$disp)), "disp"))
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$hp)), "hp"))
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$drat)), "drat"))
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$qsec)), "qsec"))
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$vs)), "vs"))
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$gear)), "gear"))
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$carb)), "carb"))
+wtcor <- rbind(wtcor, c(abs(cor(mtcars$wt, mtcars$am)), "am"))
+wtcor[order(wtcor[,1], decreasing = TRUE),]
+
+
+#Figure 7: 'Summary of (mpg ~ am + wt + qsec) linear regression'
+summary(lm(mpg ~ am + wt + qsec, mtcars))
+
+
+#Figure 8: 'qsec correlation table'
+qseccor <- c(abs(cor(mtcars$qsec, mtcars$cyl)), "cyl")
+qseccor <- rbind(qseccor, c(abs(cor(mtcars$qsec, mtcars$disp)), "disp"))
+qseccor <- rbind(qseccor, c(abs(cor(mtcars$qsec, mtcars$hp)), "hp"))
+qseccor <- rbind(qseccor, c(abs(cor(mtcars$qsec, mtcars$drat)), "drat"))
+qseccor <- rbind(qseccor, c(abs(cor(mtcars$qsec, mtcars$vs)), "vs"))
+qseccor <- rbind(qseccor, c(abs(cor(mtcars$qsec, mtcars$gear)), "gear"))
+qseccor <- rbind(qseccor, c(abs(cor(mtcars$qsec, mtcars$carb)), "carb"))
+qseccor <- rbind(qseccor, c(abs(cor(mtcars$qsec, mtcars$am)), "am"))
+qseccor[order(qseccor[,1], decreasing = TRUE),]
+
+
+
+
+#Figure 9: 'Summary of (mpg ~ am + wt + qsec + gear) linear regression'
+summary(lm(mpg ~ am + wt + qsec + gear, mtcars))
+
+
+#Figure 10 'ANOVA of including gear variable'
+anova(lm(mpg ~ am + wt + qsec, mtcars), lm(mpg ~ am + wt + qsec + gear, mtcars))
+
+
+
+bestfit <- lm(mpg ~ am + wt + qsec, mtcars)
+
+#Figure 11: mean of residuals must be zero
+mean(bestfit$residuals)
+
+#Figure 12: covariance between the residuals and the predictors must be close to zero.
+covtable <- c(cov(bestfit$residuals, mtcars$am), "am")
+covtable <- rbind(covtable, c(cov(bestfit$residuals, mtcars$wt), "wt"))
+covtable <- rbind(covtable, c(cov(bestfit$residuals, mtcars$qsec), "qsec"))
+covtable
+
+
+#Figure 13: 'Residuals Diagnostics Plot'
+par(mfrow=c(2,2))
+plot(lm(mpg ~ am + wt + qsec, mtcars))
+
+
+### Conclusion
+
+#Figure 14: 'Confidence Intervals'
+confint(lm(mpg ~ am + wt + qsec, mtcars))
+
+```
+
+I made this report with Rmd, but I had to export as html and then save the print out as PDF. This is bucause I use windows, and it's not very easy to knitr to pdf in windows... (I'd appreciate if you can help me with that in your comments, dear peer.)
+

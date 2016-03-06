@@ -1,0 +1,221 @@
+---
+title: "Prediction Assignment Writeup"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+### Johns Hopkins University
+#### Practical Machine Learning Course Project
+#### Gustavo P. Gialluisi
+##### 05/03/2016
+
+
+###Overview
+
+This report is a basic Machine Learning excercise that intend to analyse data in the Weight Lifting Exercise Dataset to predict values of column _classe_ of the dataset.  
+
+A good model was fit after removing columns that had high percentage of NA values. Columns with Near Zero Variance were also removed. 
+
+A accuracy of 0.99 was obtained using RandomForest model.
+
+
+### Analysis Setup
+
+Load required R packages. And load the data. And set seed for reproducible results.
+
+```{r warning=FALSE, message=FALSE}
+### Load required R packages
+require(caret)
+require(ggplot2)
+
+### Load data
+trainsubset <- read.csv("pml-training.csv",na.strings = c("NA", "#DIV/0!"))
+tosubmit <- read.csv("pml-testing.csv",na.strings = c("NA", "#DIV/0!"))
+
+### Set seed for reproducible results
+set.seed(123456)
+```
+
+
+Next I'll create training and testing partitions, so I can use only the training partition to choose the features.
+
+```{r}
+inTrain <- createDataPartition(y=trainsubset$classe,
+                               p=0.7, list=FALSE)
+training <- trainsubset[inTrain,]
+testing <- trainsubset[-inTrain,]
+```
+
+
+### Choosing Columns
+
+Let's have a look at the dataset structure.
+
+```{r}
+# 'testy' is my test dataset, that is a copy of 'training' dataset
+testy <- training 
+dim(testy)
+```
+
+The dataset has 160 variables.  
+
+```{r}
+str(testy[,1:15])
+```
+
+'X' column is only an index, not a predictor, must remove it.  
+And since I'm not doing a time series analysis, I'll remove the timestamp variable 'cvtd_timestamp'.  
+
+```{r}
+testy <- subset(testy, select = -c(X))
+testy <- subset(testy, select = -c(cvtd_timestamp))
+```
+
+#### Near Zero Variance Analysis
+The following variables has Near Zero Variance:
+
+```{r}
+# near zero variance analysis
+nzv <- nearZeroVar(testy, saveMetrics = TRUE)
+
+# columns to remove:
+row.names(nzv[nzv$nzv,])
+```
+
+
+So, this command remove the Near Zero Variance variables from my subset:
+
+```{r}
+
+testy <- subset(testy, select = -c(new_window, kurtosis_yaw_belt, skewness_yaw_belt, amplitude_yaw_belt, avg_roll_arm, stddev_roll_arm, var_roll_arm, avg_pitch_arm, stddev_pitch_arm, var_pitch_arm, avg_yaw_arm, stddev_yaw_arm, var_yaw_arm, max_roll_arm, amplitude_roll_arm, amplitude_pitch_arm, kurtosis_yaw_dumbbell, skewness_yaw_dumbbell, amplitude_yaw_dumbbell, kurtosis_yaw_forearm, skewness_yaw_forearm, max_roll_forearm, min_roll_forearm, amplitude_roll_forearm, amplitude_yaw_forearm, avg_roll_forearm, stddev_roll_forearm, var_roll_forearm, avg_pitch_forearm, stddev_pitch_forearm, var_pitch_forearm, avg_yaw_forearm, stddev_yaw_forearm, var_yaw_forearm))
+
+```
+
+#### Too much 'NA's
+
+Many variables have a high percentage of 'NA' values.
+
+```{r}
+#create a dataset with the average of 'NA' values of each variable
+na.analysis <- as.data.frame(colMeans(is.na(testy)))
+names(na.analysis) <- c("na.pc")
+na.analysis$variable <- rownames(na.analysis)
+
+#round values to 2 digits
+na.analysis$na.pc <- round(na.analysis$na.pc, 2)
+
+#create a table
+table(na.analysis$na.pc)
+```
+
+
+This table view above shows that we have 57 variables with not even one 'NA' value, and all other 67 remaining variables have more than 98% of 'NA' values.  
+
+So this variables with more than 0% of 'NA' values will be removed:
+
+```{r}
+na.analysis[na.analysis$na.pc > 0,]$variable
+```
+
+
+Command to remove them from the dataset:
+
+```{r}
+    testy <- subset(testy, select = -c(kurtosis_roll_belt, kurtosis_picth_belt, skewness_roll_belt, skewness_roll_belt.1, max_roll_belt, max_picth_belt, max_yaw_belt, min_roll_belt, min_pitch_belt, min_yaw_belt, amplitude_roll_belt, amplitude_pitch_belt, var_total_accel_belt, avg_roll_belt, stddev_roll_belt, var_roll_belt, avg_pitch_belt, stddev_pitch_belt, var_pitch_belt, avg_yaw_belt, stddev_yaw_belt, var_yaw_belt, var_accel_arm, kurtosis_roll_arm, kurtosis_picth_arm, kurtosis_yaw_arm, skewness_roll_arm, skewness_pitch_arm, skewness_yaw_arm, max_picth_arm, max_yaw_arm, min_roll_arm, min_pitch_arm, min_yaw_arm, amplitude_yaw_arm, kurtosis_roll_dumbbell, kurtosis_picth_dumbbell, skewness_roll_dumbbell, skewness_pitch_dumbbell, max_roll_dumbbell, max_picth_dumbbell, max_yaw_dumbbell, min_roll_dumbbell, min_pitch_dumbbell, min_yaw_dumbbell, amplitude_roll_dumbbell, amplitude_pitch_dumbbell, var_accel_dumbbell, avg_roll_dumbbell, stddev_roll_dumbbell, var_roll_dumbbell, avg_pitch_dumbbell, stddev_pitch_dumbbell, var_pitch_dumbbell, avg_yaw_dumbbell, stddev_yaw_dumbbell, var_yaw_dumbbell, kurtosis_roll_forearm, kurtosis_picth_forearm, skewness_roll_forearm, skewness_pitch_forearm, max_picth_forearm, max_yaw_forearm, min_pitch_forearm, min_yaw_forearm, amplitude_pitch_forearm, var_accel_forearm))
+
+```
+
+
+#### The 'transformIt' function
+
+Now this command creates the function 'transformIt(dataset)' to remove all undesired columns:  
+
+```{r}
+transformIt <- function(dataset){
+
+    # function returns the subset
+    subset(dataset, select = -c(X, cvtd_timestamp, new_window, kurtosis_yaw_belt, skewness_yaw_belt, amplitude_yaw_belt, avg_roll_arm, stddev_roll_arm, var_roll_arm, avg_pitch_arm, stddev_pitch_arm, var_pitch_arm, avg_yaw_arm, stddev_yaw_arm, var_yaw_arm, max_roll_arm, amplitude_roll_arm, amplitude_pitch_arm, kurtosis_yaw_dumbbell, skewness_yaw_dumbbell, amplitude_yaw_dumbbell, kurtosis_yaw_forearm, skewness_yaw_forearm, max_roll_forearm, min_roll_forearm, amplitude_roll_forearm, amplitude_yaw_forearm, avg_roll_forearm, stddev_roll_forearm, var_roll_forearm, avg_pitch_forearm, stddev_pitch_forearm, var_pitch_forearm, avg_yaw_forearm, stddev_yaw_forearm, var_yaw_forearm, kurtosis_roll_belt, kurtosis_picth_belt, skewness_roll_belt, skewness_roll_belt.1, max_roll_belt, max_picth_belt, max_yaw_belt, min_roll_belt, min_pitch_belt, min_yaw_belt, amplitude_roll_belt, amplitude_pitch_belt, var_total_accel_belt, avg_roll_belt, stddev_roll_belt, var_roll_belt, avg_pitch_belt, stddev_pitch_belt, var_pitch_belt, avg_yaw_belt, stddev_yaw_belt, var_yaw_belt, var_accel_arm, kurtosis_roll_arm, kurtosis_picth_arm, kurtosis_yaw_arm, skewness_roll_arm, skewness_pitch_arm, skewness_yaw_arm, max_picth_arm, max_yaw_arm, min_roll_arm, min_pitch_arm, min_yaw_arm, amplitude_yaw_arm, kurtosis_roll_dumbbell, kurtosis_picth_dumbbell, skewness_roll_dumbbell, skewness_pitch_dumbbell, max_roll_dumbbell, max_picth_dumbbell, max_yaw_dumbbell, min_roll_dumbbell, min_pitch_dumbbell, min_yaw_dumbbell, amplitude_roll_dumbbell, amplitude_pitch_dumbbell, var_accel_dumbbell, avg_roll_dumbbell, stddev_roll_dumbbell, var_roll_dumbbell, avg_pitch_dumbbell, stddev_pitch_dumbbell, var_pitch_dumbbell, avg_yaw_dumbbell, stddev_yaw_dumbbell, var_yaw_dumbbell, kurtosis_roll_forearm, kurtosis_picth_forearm, skewness_roll_forearm, skewness_pitch_forearm, max_picth_forearm, max_yaw_forearm, min_pitch_forearm, min_yaw_forearm, amplitude_pitch_forearm, var_accel_forearm))
+
+    
+}
+
+```
+
+I created a function so that I can apply it to all datasets:  
+
+```{r}
+training <- transformIt(training)
+testing <- transformIt(testing)
+tosubmit <- transformIt(tosubmit)
+```
+
+
+### Training the Model
+
+I tried two algorithms, Random Forest and Gradient Boosting, to fit the model, and both presented high accuracy of more than 99%.  
+
+I used 'center' and 'scale' pre-process methods because I understand that the fitting algorithms work better this way, with all numeric values centered and scaled between -1 and 1, and with all Standard Deviation scaled to 1.  
+
+#### Random Forest Model
+
+This command fit the training dataset to the Random Forest model:
+
+```{r eval=FALSE}
+modelRF <- train(classe ~ ., data=training,
+                  preProcess=c("center","scale"),
+                  method="rf")
+```
+
+The command above took more than 10 hours to finish its execution... So I used the following command to save the resulting model to a rds file on my working directory:
+
+```{r eval=FALSE}
+saveRDS(modelRF, file="modelRF.rds")
+```
+
+Then, when I need it again, just have to load it with readRDS command:
+
+```{r}
+modelRF <- readRDS(file="modelRF.rds")
+```
+
+Let's have a look in the Confusion Matrix, that compares results of prediction applying the resulting model to the 'testing' dataset. It shows an enormous accuracy of 99%:
+```{r}
+confusionMatrix(testing$classe, predict(modelRF, testing))
+```
+
+
+
+#### Gradient Boosting Model
+
+Same for Gradient Boosting Model:
+
+```{r eval=FALSE}
+model_gbm <- train(classe ~ ., data=training,
+                  preProcess=c("center", "scale"), 
+                  method="gbm", verbose=FALSE)
+
+saveRDS(model_gbm, file="model_gbm.rds")
+```
+
+
+```{r}
+model_gbm <- readRDS(file="model_gbm.rds")
+confusionMatrix(testing$classe, predict(model_gbm, testing))
+```
+
+### Conclusion
+
+Both models got high accuracy. Using 'predict' function with RandomForest model and the 'tosubmit' dataset, we may get the answers for our Course Project Prediction Quizz:
+
+```{r}
+predict(modelRF, tosubmit)
+```
+
+THANK YOU FOR REVIEWING THIS!
+
+### My hardware configuration
+
+```{r}
+sessionInfo()  ## for reference
+```
